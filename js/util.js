@@ -85,7 +85,28 @@ var U = (function () {
     return 'https://images.metahub.space/' + kind + '/' + (size || 'medium') + '/' + id + '/img';
   }
   function log() { try { console.log.apply(console, ['[lumera]'].concat(Array.prototype.slice.call(arguments))); } catch (e) {} }
-  function haptic() { try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {} }
+  /*
+   * A light tap of haptic feedback. Safari has no vibration API, but toggling a native switch
+   * makes iPhone play its own switch haptic, so a hidden one is clicked (iOS 18 and later).
+   */
+  var hapticLabel = null;
+  function haptic() {
+    try {
+      if (navigator.vibrate) { navigator.vibrate(8); return; }
+      if (!hapticLabel) {
+        var id = 'hapticSwitch';
+        var input = document.createElement('input');
+        input.type = 'checkbox'; input.id = id; input.setAttribute('switch', ''); input.setAttribute('aria-hidden', 'true'); input.tabIndex = -1;
+        hapticLabel = document.createElement('label');
+        hapticLabel.htmlFor = id; hapticLabel.setAttribute('aria-hidden', 'true');
+        var box = document.createElement('div');
+        box.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
+        box.appendChild(input); box.appendChild(hapticLabel);
+        document.body.appendChild(box);
+      }
+      hapticLabel.click();
+    } catch (e) {}
+  }
 
   return { $: $, $$: $$, el: el, timeout: timeout, getJson: getJson, postJson: postJson, store: store,
     clock: clock, minutesLeft: minutesLeft, toast: toast, debounce: debounce, art: art, log: log, pad: pad, haptic: haptic };

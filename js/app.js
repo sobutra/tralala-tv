@@ -23,23 +23,22 @@ var IC = {
 
 /* ---------------- screens ---------------- */
 
+/*
+ * A navigation stack like UINavigationController. No browser history is used, so iPhone's
+ * web-page swipe gestures have nothing to go back or forward to. Instead, pushed screens can
+ * be dragged away from the left edge, following the finger, exactly like a native app.
+ */
 var Screens = (function () {
   var stack = [];
   var root;
-  var skipPop = 0;
-  function init() {
-    root = document.getElementById('app');
-    // the iPhone back swipe / browser Back closes the top screen; our own Back keeps history in step
-    window.addEventListener('popstate', function () {
-      if (skipPop > 0) { skipPop--; return; }
-      if (stack.length > 1) pop(true);
-    });
-  }
+  var EASE = 'cubic-bezier(.2,.8,.2,1)';
+  function init() { root = document.getElementById('app'); }
   function top() { return stack[stack.length - 1] || null; }
   function push(s, opts) {
     opts = opts || {};
     var prev = top();
     var tip = document.querySelector('.installtip'); if (tip) tip.remove();
+    ContextMenu.close();
     stack.push(s);
     s.el.classList.add('layer');
     if (opts.modal) s.el.classList.add('modal');
@@ -48,23 +47,31 @@ var Screens = (function () {
     if (!opts.instant && prev) { void s.el.offsetWidth; setTimeout(function () { s.el.classList.remove('enter'); }, 16); }
     if (prev) {
       prev.el.classList.add('under');
+      if (opts.modal) prev.el.classList.add('under-modal');
       if (prev.onHide) prev.onHide();
-      try { history.pushState({ d: stack.length }, ''); } catch (e) {}
     }
+    if (!opts.modal && prev) edgeSwipe(s);
     if (s.onShow) s.onShow();
   }
-  function pop(fromHistory) {
+  function pop(opts) {
+    opts = opts || {};
     if (stack.length < 2) return;
     var s = stack.pop();
     if (s.onDestroy) s.onDestroy();
-    s.el.classList.add('leave');
-    setTimeout(function () { if (s.el.parentNode) s.el.parentNode.removeChild(s.el); }, 320);
     var prev = top();
-    prev.el.classList.remove('under');
+    if (opts.dragged) {
+      // finish the drag from where the finger left it
+      s.el.style.transition = 'transform .28s ' + EASE;
+      s.el.style.transform = 'translateX(100%)';
+      prev.el.style.transition = 'transform .28s ' + EASE + ', filter .28s ' + EASE;
+      prev.el.style.transform = ''; prev.el.style.filter = '';
+      setTimeout(function () { prev.el.style.transition = ''; }, 300);
+    } else s.el.classList.add('leave');
+    setTimeout(function () { if (s.el.parentNode) s.el.parentNode.removeChild(s.el); }, 340);
+    prev.el.classList.remove('under', 'under-modal');
     if (prev.onShow) prev.onShow();
-    if (!fromHistory) { try { skipPop++; history.back(); } catch (e) { skipPop--; } }
   }
-  /** Replace the whole stack with one screen (profile picker, sign-in, main). */
+  /** Replace the whole stack with one screen (sign-in, main). */
   function reset(s) {
     while (stack.length) { var x = stack.pop(); if (x.onDestroy) x.onDestroy(); if (x.el.parentNode) x.el.parentNode.removeChild(x.el); }
     stack.push(s);
@@ -72,7 +79,107 @@ var Screens = (function () {
     root.appendChild(s.el);
     if (s.onShow) s.onShow();
   }
+
+  /** Drag from the left edge to go back, with the screen underneath sliding in behind. */
+  function edgeSwipe(s) {
+    var el = s.el, startX = 0, startY = 0, t0 = 0, state = 0, dx = 0, w = 1, under = null;
+    el.addEventListener('touchstart', function (e) {
+      if (top() !== s || Sheet.isOpen() || e.touches.length > 1) return;
+      var x = e.touches[0].clientX;
+      if (x > 28) return;
+      startX = x; startY = e.touches[0].clientY; t0 = Date.now(); state = 1; dx = 0; w = el.offsetWidth || window.innerWidth;
+    }, { passive: true });
+    el.addEventListener('touchmove', function (e) {
+      if (!state) return;
+      var mx = e.touches[0].clientX - startX, my = e.touches[0].clientY - startY;
+      if (state === 1) {
+        if (Math.abs(my) > 12 && Math.abs(my) > mx) { state = 0; return; }
+        if (mx < 8) return;
+        state = 2;
+        under = stack[stack.length - 2];
+        el.style.transition = 'none';
+        if (under) under.el.style.transition = 'none';
+        el.classList.add('dragging');
+      }
+      e.preventDefault();
+      dx = Math.max(0, mx);
+      var p = Math.min(1, dx / w);
+      el.style.transform = 'translateX(' + dx + 'px)';
+      if (under) { under.el.style.transform = 'translateX(' + (-22 + 22 * p) + '%)'; under.el.style.filter = 'brightness(' + (.6 + .4 * p) + ')'; }
+    }, { passive: false });
+    function end() {
+      if (state !== 2) { state = 0; return; }
+      state = 0;
+      el.classList.remove('dragging');
+      var v = dx / Math.max(1, Date.now() - t0);
+      if (dx > w * 0.33 || (v > 0.45 && dx > 40)) { U.haptic(); pop({ dragged: true }); return; }
+      el.style.transition = 'transform .3s ' + EASE;
+      el.style.transform = '';
+      if (under) { under.el.style.transition = 'transform .3s ' + EASE + ', filter .3s ' + EASE; under.el.style.transform = ''; under.el.style.filter = ''; }
+      setTimeout(function () { el.style.transition = ''; if (under) under.el.style.transition = ''; }, 320);
+    }
+    el.addEventListener('touchend', end);
+    el.addEventListener('touchcancel', end);
+  }
   return { init: init, push: push, pop: pop, reset: reset, top: top, stack: stack };
+})();
+
+/* ---------------- long-press menus ---------------- */
+
+/*
+ * Touch and hold a poster or an Up Next card: it lifts, everything else blurs, and a glass
+ * menu of actions appears, like the iPhone TV app.
+ */
+var ContextMenu = (function () {
+  var cur = null, suppressClick = 0;
+  function attach(el, actions) {
+    var timer = null, sx = 0, sy = 0;
+    el.addEventListener('touchstart', function (e) {
+      if (e.touches.length > 1) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+      clearTimeout(timer);
+      timer = setTimeout(function () { timer = null; open(el, actions()); }, 430);
+    }, { passive: true });
+    el.addEventListener('touchmove', function (e) {
+      if (timer && (Math.abs(e.touches[0].clientX - sx) > 8 || Math.abs(e.touches[0].clientY - sy) > 8)) { clearTimeout(timer); timer = null; }
+    }, { passive: true });
+    el.addEventListener('touchend', function () { clearTimeout(timer); timer = null; });
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    el.addEventListener('click', function (e) { if (Date.now() < suppressClick) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  }
+  function open(el, actions) {
+    close();
+    U.haptic();
+    suppressClick = Date.now() + 600;
+    var r = el.getBoundingClientRect();
+    var scrim = U.el('div.cm-scrim');
+    var ghost = el.cloneNode(true);
+    ghost.classList.add('cm-ghost');
+    ghost.style.left = r.left + 'px'; ghost.style.top = r.top + 'px'; ghost.style.width = r.width + 'px'; ghost.style.height = r.height + 'px';
+    var menu = U.el('div.cm-menu.lg', { role: 'menu' });
+    actions.forEach(function (a) {
+      var b = U.el('button.cm-item' + (a.danger ? '.danger' : ''), { role: 'menuitem' }, U.el('span', { text: a.label }), a.icon ? U.el('span.cm-ic', { html: a.icon }) : null);
+      b.onclick = function () { close(); setTimeout(a.run, 120); };
+      menu.appendChild(b);
+    });
+    scrim.onclick = close;
+    document.body.appendChild(scrim); document.body.appendChild(ghost); document.body.appendChild(menu);
+    var mh = actions.length * 50 + 12, vh = window.innerHeight;
+    var below = r.bottom + 12 + mh < vh - 20;
+    menu.style.left = Math.min(Math.max(12, r.left), window.innerWidth - 262) + 'px';
+    menu.style.top = (below ? r.bottom + 12 : Math.max(20, r.top - mh - 12)) + 'px';
+    menu.style.transformOrigin = (below ? 'top' : 'bottom') + ' left';
+    void menu.offsetWidth;
+    setTimeout(function () { scrim.classList.add('show'); ghost.classList.add('lift'); menu.classList.add('show'); }, 10);
+    cur = { scrim: scrim, ghost: ghost, menu: menu };
+  }
+  function close() {
+    if (!cur) return;
+    var c = cur; cur = null;
+    c.scrim.classList.remove('show'); c.ghost.classList.remove('lift'); c.menu.classList.remove('show');
+    setTimeout(function () { c.scrim.remove(); c.ghost.remove(); c.menu.remove(); }, 260);
+  }
+  return { attach: attach, close: close };
 })();
 
 /* ---------------- bottom sheets ---------------- */
@@ -244,13 +351,24 @@ var Browse = (function () {
 
   function header(title) {
     var btn = U.el('button.me.lg.circle', { html: IC.person, 'aria-label': 'Settings' });
-    btn.onclick = function () { Settings.open(); };
-    return U.el('header.bigtitle', null, U.el('h1', { text: title }), btn);
+    btn.onclick = function () { U.haptic(); Settings.open(); };
+    return [U.el('div.navbar', { 'aria-hidden': 'true' }, U.el('span', { text: title })), U.el('header.bigtitle', null, U.el('h1', { text: title }), btn)];
+  }
+  /** Large title on top; a compact title bar fades in once it scrolls out of view (iOS style). */
+  function collapsingTitle(pane) {
+    var on = false;
+    pane.addEventListener('scroll', function () {
+      var now = pane.scrollTop > 44;
+      if (now !== on) { on = now; pane.classList.toggle('scrolled', on); }
+    }, { passive: true });
   }
 
   function rowsPane(tab) {
     var el = U.el('div.pane', { 'data-pane': tab.id });
-    el.appendChild(header(tab.title));
+    header(tab.title).forEach(function (x) { el.appendChild(x); });
+    collapsingTitle(el);
+    var refresher = U.el('div.ptr', null, U.el('div.spinner'));
+    el.insertBefore(refresher, el.firstChild);
     var upWrap = U.el('section.shelf.upnext');
     if (tab.id === 'home') el.appendChild(upWrap);
     var rowsBox = U.el('div.rows');
@@ -277,6 +395,20 @@ var Browse = (function () {
       var limit = window.innerHeight + 900;
       U.$$('.shelf', rowsBox).forEach(function (sec) { if (!sec._started && sec._load && sec.getBoundingClientRect().top < limit) sec._load(); });
     }
+    var pullMax = 0, refreshing = false;
+    el.addEventListener('scroll', function () { if (el.scrollTop < pullMax) pullMax = el.scrollTop; refresher.style.opacity = Math.min(1, -el.scrollTop / 70); }, { passive: true });
+    el.addEventListener('touchstart', function () { pullMax = 0; }, { passive: true });
+    el.addEventListener('touchend', function () {
+      if (pullMax < -72 && !refreshing) {
+        refreshing = true; U.haptic(); el.classList.add('refreshing');
+        Promise.all([Stremio.pull(), Stremio.refreshAddons()]).then(function () { return Stremio.resolveFinished(); }).then(function () {
+          renderUpNext(); buildRows();
+        }).catch(function () { U.toast('Couldn’t refresh. Check your connection.'); }).then(function () {
+          refreshing = false; el.classList.remove('refreshing');
+        });
+      }
+      pullMax = 0;
+    });
     var lazyTick = null;
     el.addEventListener('scroll', function () { if (!lazyTick) lazyTick = setTimeout(function () { lazyTick = null; lazyRows(); }, 120); }, { passive: true });
     function renderUpNext() {
@@ -356,9 +488,11 @@ var Browse = (function () {
   }
 
   function img(src, cls) {
-    var i = U.el('img' + (cls ? '.' + cls : ''), { src: src || '', alt: '', loading: 'lazy', decoding: 'async' });
+    var i = U.el('img.fade' + (cls ? '.' + cls : ''), { src: src || '', alt: '', loading: 'lazy', decoding: 'async' });
+    i.onload = function () { i.classList.add('in'); };
     i.onerror = function () { i.style.visibility = 'hidden'; };
     if (!src) i.style.visibility = 'hidden';
+    if (i.complete && src) i.classList.add('in');
     return i;
   }
 
@@ -366,6 +500,12 @@ var Browse = (function () {
     var poster = (m.poster && m.poster.indexOf('metahub') < 0 ? m.poster : U.art(m.id, 'poster', 'small')) || m.poster;
     var b = U.el('button.card.poster', { 'aria-label': m.name }, U.el('span.pname2', { text: m.name }), img(poster));
     b.onclick = function () { U.haptic(); Details.open(m); };
+    ContextMenu.attach(b, function () {
+      return [
+        { label: 'Play', icon: IC.play, run: function () { Player.prime(); Details.open(m, { play: true }); } },
+        { label: m.type === 'series' ? 'Go to Show' : 'Go to Movie', icon: IC.chevron, run: function () { Details.open(m); } }
+      ];
+    });
     return b;
   }
 
@@ -397,6 +537,13 @@ var Browse = (function () {
       Player.prime();
       Details.open(m, { autoplay: { videoId: it.videoId, position: it.position } });
     };
+    ContextMenu.attach(b, function () {
+      return [
+        { label: it.duration ? 'Resume' : 'Play', icon: IC.play, run: function () { b.click(); } },
+        { label: it.type === 'series' ? 'Go to Show' : 'Go to Movie', icon: IC.chevron, run: function () { Details.open({ id: it.id, type: it.type, name: it.name, poster: it.poster }); } },
+        { label: 'Remove from Up Next', icon: IC.close, danger: true, run: function () { Stremio.push({ id: it.id, type: it.type, name: it.name, poster: it.poster, videoId: it.videoId, position: 0, duration: 0 }); b.remove(); U.toast('Removed from Up Next'); } }
+      ];
+    });
     dots.onclick = function (e) {
       e.stopPropagation();
       var g = U.el('div.group',
@@ -418,7 +565,8 @@ var Browse = (function () {
 
   function searchPane() {
     var el = U.el('div.pane.search', { 'data-pane': 'search' });
-    el.appendChild(header('Search'));
+    header('Search').forEach(function (x) { el.appendChild(x); });
+    collapsingTitle(el);
     var input = U.el('input.searchfield', { id: 'q', type: 'search', placeholder: 'Movies and TV shows', autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', enterkeyhint: 'search' });
     var wrap = U.el('div.searchwrap.lg', null, U.el('span.si', { html: IC.search }), input);
     el.appendChild(wrap);
@@ -456,7 +604,9 @@ var Grid = (function () {
     var el = U.el('div.screen.gridpage');
     var sc = U.el('div.pane');
     var grid = U.el('div.grid');
+    sc.appendChild(U.el('div.navbar', { 'aria-hidden': 'true' }, U.el('span', { text: title })));
     sc.appendChild(U.el('header.bigtitle.sub', null, U.el('h1', { text: title })));
+    sc.addEventListener('scroll', function () { sc.classList.toggle('scrolled', sc.scrollTop > 60); }, { passive: true });
     sc.appendChild(grid);
     sc.appendChild(U.el('div.tabpad'));
     el.appendChild(sc);
@@ -492,7 +642,7 @@ var Settings = (function () {
     body.appendChild(U.el('div.group', null,
       toggleRow('st-auto', 'Autoplay Next Episode', 'Counts down from 10 at the end of an episode', U.store.get('autoplay', true), function (v) { U.store.set('autoplay', v); }),
       toggleRow('st-subs', 'English Subtitles', 'Turn on English subtitles when a video starts', U.store.get('subsOn', false), function (v) { U.store.set('subsOn', v); })));
-    body.appendChild(U.el('p.foot-note', { text: 'Versions that only play in VLC open in the free VLC app. Progress from VLC doesn’t sync back.' }));
+    body.appendChild(U.el('p.foot-note', { text: 'Versions that only play in VLC open in the free VLC app. Progress from VLC doesn’t sync back. Picture in Picture isn’t available to Home Screen web apps on iOS 26.' }));
     body.appendChild(U.el('h3.grouptitle', { text: 'Stremio Account' }));
     body.appendChild(U.el('div.group', null,
       U.el('div.row', null, U.el('div.row-t', { text: Stremio.email() || 'Signed in' })),
@@ -739,16 +889,23 @@ var Details = (function () {
       onShow: function () { if (full) Stremio.pullIfStale(8000).then(function () { render(); renderEpisodes(); }); },
       refresh: function () { render(); renderEpisodes(); }
     };
-    // the back button turns solid once the artwork scrolls away
-    scroller.addEventListener('scroll', function () { back.classList.toggle('solid', scroller.scrollTop > 200); }, { passive: true });
+    // once the artwork scrolls away, a glass title bar takes its place (iOS style)
+    var dnav = U.el('div.dnav', { 'aria-hidden': 'true' }, U.el('span', { text: m.name }));
+    el.insertBefore(dnav, back);
+    scroller.addEventListener('scroll', function () {
+      var limit = (U.$('.herobox', scroller) || { offsetHeight: 300 }).offsetHeight - 110;
+      el.classList.toggle('scrolled', scroller.scrollTop > limit);
+    }, { passive: true });
     render();
     Screens.push(s);
     Stremio.meta(m.type, m.id).then(function (mm) {
       meta = mm; full = true;
+      U.$('span', dnav).textContent = mm.name;
       if (!m.background && mm.background && mm.background !== bgSrc) { heroImg.src = mm.background; blurImg.src = mm.background; }
       render(); renderEpisodes();
       // warm up the versions in the background so Play starts right away
       if (!opts.autoplay && target && target.videoId) Stremio.streams(meta.type, target.videoId);
+      if (opts.play && target && target.videoId) start(target, null);
       if (opts.autoplay) {
         var ap = opts.autoplay;
         var ep = series() ? Stremio.episodes(meta).filter(function (e) { return e.id === ap.videoId; })[0] : null;
@@ -796,6 +953,15 @@ var App = (function () {
   function contentChanged() { if (browse) browse.rebuild(); }
   function init() {
     Screens.init();
+    // let buttons show their pressed state the instant a finger lands (Safari waits otherwise)
+    document.addEventListener('touchstart', function () {}, { passive: true });
+    // no web-page zooming by double tap or pinch: this is an app
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+    // offline notice
+    var off = U.el('div.offline.lg', { role: 'status', text: 'You’re offline' });
+    document.body.appendChild(off);
+    function net() { off.classList.toggle('show', navigator.onLine === false); }
+    window.addEventListener('online', net); window.addEventListener('offline', net); net();
     addonSig = (U.store.get('addons', []) || []).map(function (a) { return a.transportUrl; }).join('|');
     Filter.noHorror = !!U.store.get('noHorror', false);
     Stremio.onExpired(function () { U.toast('Please sign in to Stremio again'); start(); });
@@ -803,7 +969,7 @@ var App = (function () {
     if (Stremio.signedIn()) InstallTip.maybe();
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
   }
-  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.4' };
+  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '2.0' };
 })();
 
 /* In Safari (not yet on the Home Screen), a one-line nudge to add it, once per day at most. */
@@ -815,7 +981,7 @@ var InstallTip = (function () {
     if (Date.now() - last < 86400000) return;
     U.store.set('tipShown', Date.now());
     var tip = U.el('div.installtip.lg', { role: 'note' },
-      U.el('div.it-text', null, U.el('b', { text: 'Add Tra-la-la TV to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. Turn off “Open as Web App” to keep Picture in Picture.' })),
+      U.el('div.it-text', null, U.el('b', { text: 'Add Tra-la-la TV to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. It opens full screen, like an app, and stays signed in.' })),
       U.el('button.icon-btn', { html: IC.close, 'aria-label': 'Dismiss', onclick: function () { tip.remove(); } }));
     document.body.appendChild(tip);
     setTimeout(function () { tip.remove(); }, 15000);
