@@ -17,6 +17,7 @@ var IC = {
   reset: '<svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>',
   vlc: '<svg viewBox="0 0 24 24"><path d="M12 2.5 6.6 17.2c-.9.4-1.6 1-1.6 1.8 0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5c0-.8-.7-1.4-1.6-1.8zm-1.9 7.4h3.8l.8 2.3c-1.6.6-3.8.6-5.4 0zm-1.6 4.5c2.1.8 4.9.8 7 0l.9 2.6c-2.6 1-6.2 1-8.8 0z"/></svg>',
+  person: '<svg viewBox="0 0 24 24"><path d="M12 12.2a4.1 4.1 0 1 0 0-8.2 4.1 4.1 0 0 0 0 8.2zm0 1.9c-3.6 0-7.4 1.8-7.4 4.3V20h14.8v-1.6c0-2.5-3.8-4.3-7.4-4.3z"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="M9.4 4.6 16.8 12l-7.4 7.4-1.4-1.4 6-6-6-6z"/></svg>'
 };
 
@@ -118,98 +119,6 @@ var Sheet = (function () {
   return { open: open, close: close, isOpen: function () { return !!cur; } };
 })();
 
-/* ---------------- profiles ---------------- */
-
-var Profiles = (function () {
-  var COLORS = [['#ff8a5b', '#e0455f'], ['#5ea9ff', '#5b5cf0'], ['#40d39c', '#169a8a'], ['#ffd25e', '#f08a24'], ['#d77bff', '#8a4cf0'], ['#ff7aa8', '#d63d78']];
-  function all() {
-    var l = U.store.get('profiles', null);
-    if (!l || !l.length) { l = [{ id: 'p1', name: 'Srun Family', noHorror: false, color: 0 }]; U.store.set('profiles', l); }
-    return l;
-  }
-  function save(l) { U.store.set('profiles', l); }
-  function current() {
-    var id = U.store.get('profile', null);
-    return all().filter(function (p) { return p.id === id; })[0] || null;
-  }
-  function use(p) { U.store.set('profile', p.id); Filter.noHorror = !!p.noHorror; }
-  function initials(name) {
-    var w = String(name || '?').trim().split(/\s+/);
-    return ((w[0] || '?')[0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase();
-  }
-  function avatar(p, big) {
-    var c = COLORS[(p.color || 0) % COLORS.length];
-    return U.el('div.avatar' + (big ? '.big' : ''), { style: 'background:linear-gradient(145deg,' + c[0] + ',' + c[1] + ')', text: initials(p.name) });
-  }
-
-  function picker() {
-    var editing = false;
-    var el = U.el('div.screen.profiles');
-    function render() {
-      el.innerHTML = '';
-      el.appendChild(U.el('div.prof-top', null,
-        U.el('button.text-btn', { text: editing ? 'Done' : 'Edit', onclick: function () { editing = !editing; render(); } })));
-      el.appendChild(U.el('div.mark', { html: IC.play }));
-      el.appendChild(U.el('h1.who', { text: 'Who’s Watching?' }));
-      var grid = U.el('div.prof-grid' + (editing ? '.editing' : ''));
-      all().forEach(function (p) {
-        var a = avatar(p, true);
-        var tile = U.el('button.prof', null, a, U.el('div.pname', { text: p.name }), p.noHorror ? U.el('div.ptag', { text: 'No Horror' }) : null);
-        tile.onclick = function () {
-          if (editing) { edit(p, render); return; }
-          U.haptic(); use(p); App.afterProfile();
-        };
-        grid.appendChild(tile);
-      });
-      var add = U.el('button.prof.add', null, U.el('div.avatar.big.add', { html: IC.plus }), U.el('div.pname', { text: 'Add Profile' }));
-      add.onclick = function () { edit(null, render); };
-      grid.appendChild(add);
-      el.appendChild(grid);
-      el.appendChild(U.el('p.prof-hint', { text: editing ? 'Tap a profile to rename it, change No Horror, or delete it.' : 'Profiles live on this iPhone. Your Stremio progress is shared by everyone.' }));
-    }
-    render();
-    return { el: el, name: 'profiles' };
-  }
-
-  /** Add or edit a profile in a sheet. */
-  function edit(p, done) {
-    var isNew = !p;
-    var list = all();
-    var draft = p ? { name: p.name, noHorror: !!p.noHorror } : { name: '', noHorror: false };
-    var body = U.el('form.form', { autocomplete: 'off' });
-    var name = U.el('input.field', { id: 'pf-name', type: 'text', placeholder: 'Name', value: draft.name, maxlength: '24', autocapitalize: 'words', enterkeyhint: 'done' });
-    var tog = toggleRow('pf-nh', 'No Horror', 'Hides horror movies and shows for this profile', draft.noHorror, function (v) { draft.noHorror = v; });
-    body.appendChild(U.el('label.lbl', { for: 'pf-name', text: 'Name' }));
-    body.appendChild(name);
-    body.appendChild(U.el('div.group', null, tog));
-    var saveBtn = U.el('button.btn.primary.wide', { type: 'submit', text: isNew ? 'Add Profile' : 'Save' });
-    body.appendChild(saveBtn);
-    if (!isNew && list.length > 1) {
-      body.appendChild(U.el('button.btn.danger.wide', { type: 'button', text: 'Delete Profile', onclick: function () {
-        save(all().filter(function (x) { return x.id !== p.id; }));
-        if (U.store.get('profile') === p.id) U.store.del('profile');
-        Sheet.close(); done && done();
-      } }));
-    }
-    body.onsubmit = function (e) {
-      e.preventDefault();
-      var n = name.value.trim();
-      if (!n) { name.focus(); U.toast('Enter a name for the profile'); return; }
-      var l = all();
-      if (isNew) l.push({ id: 'p' + Date.now(), name: n, noHorror: draft.noHorror, color: l.length % COLORS.length });
-      else l.forEach(function (x) { if (x.id === p.id) { x.name = n; x.noHorror = draft.noHorror; } });
-      save(l);
-      var c = current();
-      if (c) use(c);
-      Sheet.close(); done && done();
-    };
-    Sheet.open(isNew ? 'New Profile' : 'Edit Profile', body);
-    if (isNew) setTimeout(function () { name.focus(); }, 380);
-  }
-
-  return { all: all, current: current, use: use, picker: picker, edit: edit, avatar: avatar, save: save };
-})();
-
 /** An iOS-style switch row. */
 function toggleRow(id, label, sub, on, onChange) {
   var input = U.el('input', { id: id, type: 'checkbox', role: 'switch' });
@@ -303,9 +212,7 @@ var Browse = (function () {
   }
 
   function header(title) {
-    var p = Profiles.current();
-    var av = Profiles.avatar(p || { name: '?' });
-    var btn = U.el('button.me', { 'aria-label': 'Settings and profiles' }, av);
+    var btn = U.el('button.me.glass', { html: IC.person, 'aria-label': 'Settings' });
     btn.onclick = function () { Settings.open(); };
     return U.el('header.bigtitle', null, U.el('h1', { text: title }), btn);
   }
@@ -382,12 +289,19 @@ var Browse = (function () {
     }
     function first() {
       loading = true;
+      // show the last saved copy at once, then swap in the fresh list if it changed
+      var cached = Stremio.cachedCatalog(c), shown = '';
+      if (cached && cached.length) {
+        track.innerHTML = ''; pool = cached.slice(12); add(cached.slice(0, 12)); loaded = cached.length;
+        shown = cached.slice(0, 12).map(function (m) { return m.id; }).join();
+      }
       Stremio.catalog(c).then(function (metas) {
-        track.innerHTML = '';
         loading = false;
-        if (!metas.length) { sec.remove(); return; }
-        pool = metas.slice(12); add(metas.slice(0, 12)); loaded = metas.length;
-        if (metas.length < 12) done = true;
+        if (!metas.length) { if (!shown) sec.remove(); return; }
+        loaded = metas.length; done = metas.length < 12;
+        if (shown && metas.slice(0, 12).map(function (m) { return m.id; }).join() === shown) { pool = metas.slice(12); return; }
+        track.innerHTML = ''; track.scrollLeft = 0;
+        pool = metas.slice(12); add(metas.slice(0, 12));
       });
     }
     function more() {
@@ -528,18 +442,11 @@ var Grid = (function () {
 
 var Settings = (function () {
   function open() {
-    var p = Profiles.current();
     var body = U.el('div.settings');
-    if (p) {
-      body.appendChild(U.el('div.me-card', null, Profiles.avatar(p, true), U.el('div', null, U.el('div.me-name', { text: p.name }), U.el('div.me-sub', { text: p.noHorror ? 'No Horror is on' : 'Showing everything' }))));
-      body.appendChild(U.el('div.group', null,
-        U.el('button.row.link', { onclick: function () { Sheet.close(); App.switchProfile(); } }, U.el('div.row-t', { text: 'Switch Profile' }), U.el('span.chev', { html: IC.chevron })),
-        U.el('button.row.link', { onclick: function () { Sheet.close(); setTimeout(function () { Profiles.edit(p, function () { App.profileChanged(); }); }, 360); } }, U.el('div.row-t', { text: 'Edit Profile' }), U.el('span.chev', { html: IC.chevron }))));
-      body.appendChild(U.el('h3.grouptitle', { text: 'Content' }));
-      body.appendChild(U.el('div.group', null, toggleRow('st-nh', 'No Horror', 'Hide horror movies and shows for ' + p.name, p.noHorror, function (v) {
-        var l = Profiles.all(); l.forEach(function (x) { if (x.id === p.id) x.noHorror = v; }); Profiles.save(l); Profiles.use(p); p.noHorror = v; App.profileChanged();
-      })));
-    }
+    body.appendChild(U.el('h3.grouptitle.first', { text: 'Content' }));
+    body.appendChild(U.el('div.group', null, toggleRow('st-nh', 'No Horror', 'Hide horror movies and shows everywhere in the app', Filter.noHorror, function (v) {
+      Filter.noHorror = v; U.store.set('noHorror', v); App.contentChanged();
+    })));
     body.appendChild(U.el('h3.grouptitle', { text: 'Playback' }));
     body.appendChild(U.el('div.group', null,
       toggleRow('st-auto', 'Autoplay Next Episode', 'Counts down from 10 at the end of an episode', U.store.get('autoplay', true), function (v) { U.store.set('autoplay', v); }),
@@ -549,6 +456,7 @@ var Settings = (function () {
     body.appendChild(U.el('div.group', null,
       U.el('div.row', null, U.el('div.row-t', { text: Stremio.email() || 'Signed in' })),
       U.el('button.row.link.danger', { onclick: function () { Stremio.logout(); Sheet.close(); App.start(); } }, U.el('div.row-t', { text: 'Sign Out' }))));
+    body.appendChild(U.el('p.foot-note', { text: 'You stay signed in on this iPhone, even from the Home Screen icon. Sign Out to switch accounts.' }));
     body.appendChild(U.el('p.foot-note.center', { text: 'Lumera ' + App.version + ' · The same app as your living room and bedroom TVs.' }));
     Sheet.open('Settings', body, { tall: true });
   }
@@ -791,6 +699,8 @@ var Details = (function () {
       meta = mm; full = true;
       if (!m.background && mm.background && mm.background !== bgSrc) { heroImg.src = mm.background; blurImg.src = mm.background; }
       render(); renderEpisodes();
+      // warm up the versions in the background so Play starts right away
+      if (!opts.autoplay && target && target.videoId) Stremio.streams(meta.type, target.videoId);
       if (opts.autoplay) {
         var ap = opts.autoplay;
         var ep = series() ? Stremio.episodes(meta).filter(function (e) { return e.id === ap.videoId; })[0] : null;
@@ -815,21 +725,18 @@ var Details = (function () {
 
 var App = (function () {
   var browse = null;
+  /** Straight to the catalog when signed in; otherwise the one-time sign-in. */
   function start() {
-    var p = Profiles.current();
-    Screens.reset(Profiles.picker());
-    if (p) Filter.noHorror = !!p.noHorror;
-  }
-  function afterProfile() {
-    if (!Stremio.signedIn()) { Screens.reset(SignIn.screen()); return; }
+    if (!Stremio.signedIn()) { browse = null; Screens.reset(SignIn.screen()); return; }
     openBrowse();
   }
-  function afterSignIn() { openBrowse(); }
+  function afterSignIn() { openBrowse(); InstallTip.maybe(); }
   function openBrowse() {
     browse = Browse.screen();
     Screens.reset(browse);
     Stremio.refreshAddons().then(function (l) { if (browse && addonsChanged(l)) browse.rebuild(); });
     Stremio.pull();
+    Stremio.ensureEmail();
   }
   var addonSig = '';
   function addonsChanged(l) {
@@ -838,17 +745,34 @@ var App = (function () {
     addonSig = sig;
     return changed;
   }
-  function switchProfile() { browse = null; Screens.reset(Profiles.picker()); }
-  function profileChanged() { if (browse) browse.rebuild(); }
+  function contentChanged() { if (browse) browse.rebuild(); }
   function init() {
     Screens.init();
     addonSig = (U.store.get('addons', []) || []).map(function (a) { return a.transportUrl; }).join('|');
-    var p = Profiles.current();
-    if (p) Filter.noHorror = !!p.noHorror;
+    Filter.noHorror = !!U.store.get('noHorror', false);
+    Stremio.onExpired(function () { U.toast('Please sign in to Stremio again'); start(); });
     start();
+    if (Stremio.signedIn()) InstallTip.maybe();
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
   }
-  return { init: init, start: start, afterProfile: afterProfile, afterSignIn: afterSignIn, switchProfile: switchProfile, profileChanged: profileChanged, version: '1.0' };
+  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.1' };
+})();
+
+/* In Safari (not yet on the Home Screen), a one-line nudge to add it, once per day at most. */
+var InstallTip = (function () {
+  function maybe() {
+    var ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    if (!ios || navigator.standalone || document.querySelector('.installtip')) return;
+    var last = U.store.get('tipShown', 0);
+    if (Date.now() - last < 86400000) return;
+    U.store.set('tipShown', Date.now());
+    var tip = U.el('div.installtip.glass', { role: 'note' },
+      U.el('div.it-text', null, U.el('b', { text: 'Add Lumera to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. It opens signed in.' })),
+      U.el('button.icon-btn', { html: IC.close, 'aria-label': 'Dismiss', onclick: function () { tip.remove(); } }));
+    document.body.appendChild(tip);
+    setTimeout(function () { tip.remove(); }, 15000);
+  }
+  return { maybe: maybe };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);

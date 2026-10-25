@@ -9,7 +9,24 @@ var Stremio = (function () {
   var LINK = 'https://link.stremio.com/api/';
   var CINEMETA = 'https://v3-cinemeta.strem.io/manifest.json';
 
+  /*
+   * The sign-in is kept in two places: this device's storage, and the app's own address
+   * (after the #, which never leaves the phone). iPhone can clear web storage, and a Home Screen
+   * icon has storage separate from Safari; the address travels with the icon, so it stays signed in.
+   */
+  function fromAddress() {
+    var m = /[#&]s=([A-Za-z0-9_\-]+)/.exec(location.hash || '');
+    if (!m) return null;
+    try { var k = atob(m[1].replace(/-/g, '+').replace(/_/g, '/')); return /^[A-Za-z0-9_=+\/\-]{16,120}$/.test(k) ? k : null; } catch (e) { return null; }
+  }
+  function toAddress(key) {
+    var h = key ? '#s=' + btoa(key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : '';
+    try { history.replaceState(history.state, '', location.pathname + location.search + h); } catch (e) {}
+  }
   var auth = U.store.get('auth', null);       // {authKey, email}
+  var keyInAddress = fromAddress();
+  if (keyInAddress && (!auth || auth.authKey !== keyInAddress)) { auth = { authKey: keyInAddress, email: '' }; U.store.set('auth', auth); }
+  if (auth && auth.authKey && !keyInAddress) toAddress(auth.authKey);
   var addons = U.store.get('addons', null);   // cached add-on collection
   var library = U.store.get('library', []);   // cached library items
   var lastPull = 0;
@@ -17,9 +34,14 @@ var Stremio = (function () {
   function signedIn() { return !!(auth && auth.authKey); }
   function email() { return auth ? auth.email : ''; }
 
+  var onExpired = null;
   function call(method, body) {
     return U.postJson(API + method, body, 20000).then(function (r) {
-      if (r && r.error) throw new Error(r.error.message || 'Stremio error');
+      if (r && r.error) {
+        // the session was signed out elsewhere: ask to sign in again rather than showing nothing
+        if (body && body.authKey && /session/i.test(r.error.message || '') && onExpired) { logout(); onExpired(); }
+        throw new Error(r.error.message || 'Stremio error');
+      }
       return r ? r.result : null;
     });
   }
@@ -27,6 +49,14 @@ var Stremio = (function () {
   function setAuth(key, mail) {
     auth = { authKey: key, email: mail || '' };
     U.store.set('auth', auth);
+    toAddress(key);
+  }
+  /** Fills in the account email when only the key came back from the address. */
+  function ensureEmail() {
+    if (!auth || auth.email) return;
+    call('getUser', { type: 'GetUser', authKey: auth.authKey }).then(function (u) {
+      if (u && u.email && auth) { auth.email = u.email; U.store.set('auth', auth); }
+    }, function () {});
   }
 
   function login(mail, password) {
@@ -60,6 +90,7 @@ var Stremio = (function () {
   function logout() {
     auth = null; addons = null; library = [];
     U.store.del('auth'); U.store.del('addons'); U.store.del('library');
+    toAddress(null);
   }
 
   // ---------- add-ons ----------
@@ -139,9 +170,23 @@ var Stremio = (function () {
     return (metas || []).filter(function (m) { return m && m.id && m.name && m.type && Filter.allows(m); });
   }
 
+  var catMem = {};
   function catalog(c, skip) {
     var url = base(c.addon) + '/catalog/' + c.type + '/' + c.id + (skip ? '/skip=' + skip : '') + '.json';
-    return U.getJson(url, 12000).then(function (r) { return clean(r.metas); }, function () { return []; });
+    return U.getJson(url, 12000).then(function (r) {
+      var metas = (r.metas || []).slice(0, 60).map(slim);
+      if (!skip) { catMem[url] = metas; U.store.set('cat:' + url, { t: Date.now(), m: metas }); }
+      return clean(metas);
+    }, function () { return skip ? [] : clean(cachedCatalog(c) || []); });
+  }
+  /** The last saved first page of a catalog (for an instant start), or null. */
+  function cachedCatalog(c) {
+    var url = base(c.addon) + '/catalog/' + c.type + '/' + c.id + '.json';
+    var hit = catMem[url] || (U.store.get('cat:' + url, null) || {}).m;
+    return hit ? clean(hit) : null;
+  }
+  function slim(m) {
+    return { id: m.id, type: m.type, name: m.name, poster: m.poster, background: m.background, logo: m.logo, genres: m.genres || m.genre, releaseInfo: m.releaseInfo, imdbRating: m.imdbRating };
   }
 
   function search(q) {
@@ -177,7 +222,15 @@ var Stremio = (function () {
   }
 
   /** Streams from every stream add-on, in parallel. Only direct links (debrid/HTTP), no P2P. */
+  var streamMem = {};
   function streams(type, id) {
+    var k = type + ':' + id, hit = streamMem[k];
+    if (hit && Date.now() - hit.t < 240000) return hit.p;
+    var p = fetchStreams(type, id).then(function (l) { if (!l.length) delete streamMem[k]; return l; });
+    streamMem[k] = { t: Date.now(), p: p };
+    return p;
+  }
+  function fetchStreams(type, id) {
     var sources = list().filter(function (a) { return a.manifest && supports(a, 'stream', type, id); });
     return Promise.all(sources.map(function (a) {
       return U.getJson(base(a) + '/stream/' + type + '/' + enc(id) + '.json', 20000).then(function (r) {
@@ -330,7 +383,8 @@ var Stremio = (function () {
 
   return {
     signedIn: signedIn, email: email, login: login, linkCreate: linkCreate, linkRead: linkRead, logout: logout,
-    refreshAddons: refreshAddons, catalogs: catalogs, catalog: catalog, search: search, meta: meta, streams: streams,
+    refreshAddons: refreshAddons, catalogs: catalogs, catalog: catalog, cachedCatalog: cachedCatalog, ensureEmail: ensureEmail,
+    onExpired: function (fn) { onExpired = fn; }, search: search, meta: meta, streams: streams,
     pull: pull, pullIfStale: pullIfStale, upNext: upNext, resolveFinished: resolveFinished, push: push,
     progressFor: progressFor, findLocal: findLocal, nextEpisode: nextEpisode, episodes: episodes, released: released,
     library: function () { return library; }
