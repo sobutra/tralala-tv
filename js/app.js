@@ -34,6 +34,7 @@ var Screens = (function () {
   function push(s, opts) {
     opts = opts || {};
     var prev = top();
+    var tip = document.querySelector('.installtip'); if (tip) tip.remove();
     stack.push(s);
     s.el.classList.add('layer');
     if (opts.modal) s.el.classList.add('modal');
@@ -79,7 +80,7 @@ var Sheet = (function () {
     var scrim = U.el('div.sheet-scrim');
     var sheet = U.el('div.sheet' + (opts.tall ? '.tall' : ''), { role: 'dialog', 'aria-label': title },
       U.el('div.grab'),
-      U.el('div.sheet-head', null, U.el('h2', { text: title }), U.el('button.icon-btn.glass', { html: IC.close, 'aria-label': 'Close', onclick: function () { close(); } })),
+      U.el('div.sheet-head', null, U.el('h2', { text: title }), U.el('button.lg.circle.small', { html: IC.close, 'aria-label': 'Close', onclick: function () { close(); } })),
       opts.sub ? U.el('div.sheet-sub', { text: opts.sub }) : null,
       U.el('div.sheet-body', null, body));
     scrim.onclick = function () { close(); };
@@ -120,12 +121,13 @@ var Sheet = (function () {
 })();
 
 /** An iOS-style switch row. */
+var NATIVE_SWITCH = 'switch' in document.createElement('input');
 function toggleRow(id, label, sub, on, onChange) {
-  var input = U.el('input', { id: id, type: 'checkbox', role: 'switch' });
+  var input = U.el('input', { id: id, type: 'checkbox', role: 'switch', switch: NATIVE_SWITCH ? true : null });
   input.checked = !!on;
   input.onchange = function () { U.haptic(); onChange(input.checked); };
   return U.el('label.row.toggle', { for: id }, U.el('div.row-text', null, U.el('div.row-t', { text: label }), sub ? U.el('div.row-s', { text: sub }) : null),
-    U.el('span.switch', null, input, U.el('i')));
+    NATIVE_SWITCH ? U.el('span.nswitch', null, input) : U.el('span.switch', null, input, U.el('i')));
 }
 
 /* ---------------- sign in ---------------- */
@@ -180,19 +182,43 @@ var Browse = (function () {
   function screen() {
     var el = U.el('div.screen.browse');
     var panes = {};
-    var bar = U.el('nav.tabbar.glass', { 'aria-label': 'Sections' });
+    var tabs = U.el('div.tabs.lg', { role: 'tablist' });
+    var pill = U.el('span.tabpill');
+    tabs.appendChild(pill);
+    var searchBtn = U.el('button.tab.searchtab.lg', { 'data-tab': 'search', 'aria-label': 'Search', html: IC.search });
+    var bar = U.el('nav.tabbar', { 'aria-label': 'Sections' }, tabs, searchBtn);
     var active = null;
     TABS.forEach(function (t) {
-      var b = U.el('button.tab', { 'data-tab': t.id, 'aria-label': t.label }, U.el('span.ti', { html: t.icon }), U.el('span.tl', { text: t.label }));
+      var b = t.id === 'search' ? searchBtn : U.el('button.tab', { 'data-tab': t.id, 'aria-label': t.label, role: 'tab' }, U.el('span.ti', { html: t.icon }), U.el('span.tl', { text: t.label }));
       b.onclick = function () {
+        if (bar.classList.contains('mini')) { bar.classList.remove('mini'); if (active === t.id) return; }
         if (active === t.id) { var p = panes[t.id]; if (p) p.el.scrollTo({ top: 0, behavior: 'smooth' }); if (t.id === 'search' && p) p.focus(); return; }
         U.haptic(); show(t.id);
       };
-      bar.appendChild(b);
+      if (t.id !== 'search') tabs.appendChild(b);
     });
+    function placePill() {
+      var on = U.$('.tab.on', tabs);
+      pill.style.opacity = on ? 1 : 0;
+      if (on) { pill.style.width = on.offsetWidth + 'px'; pill.style.transform = 'translateX(' + (on.offsetLeft - 4) + 'px)'; }
+    }
+    window.addEventListener('resize', function () { setTimeout(placePill, 50); });
+    // the tab bar shrinks while you scroll down and comes back when you scroll up
+    var lastY = 0;
+    el.addEventListener('scroll', function (e) {
+      var t = e.target;
+      if (!t.classList || !t.classList.contains('pane')) return;
+      var y = t.scrollTop;
+      if (y > lastY + 6 && y > 120) bar.classList.add('mini');
+      else if (y < lastY - 6 || y < 60) bar.classList.remove('mini');
+      lastY = y;
+      requestAnimationFrame(function () { setTimeout(placePill, 360); });
+    }, true);
     function show(id) {
-      active = id;
+      active = id; lastY = 0;
+      bar.classList.remove('mini');
       U.$$('.tab', bar).forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === id); });
+      setTimeout(placePill, 0);
       Object.keys(panes).forEach(function (k) { panes[k].el.hidden = k !== id; });
       if (!panes[id]) {
         var t = TABS.filter(function (x) { return x.id === id; })[0];
@@ -212,7 +238,7 @@ var Browse = (function () {
   }
 
   function header(title) {
-    var btn = U.el('button.me.glass', { html: IC.person, 'aria-label': 'Settings' });
+    var btn = U.el('button.me.lg.circle', { html: IC.person, 'aria-label': 'Settings' });
     btn.onclick = function () { Settings.open(); };
     return U.el('header.bigtitle', null, U.el('h1', { text: title }), btn);
   }
@@ -379,7 +405,7 @@ var Browse = (function () {
     var el = U.el('div.pane.search', { 'data-pane': 'search' });
     el.appendChild(header('Search'));
     var input = U.el('input.searchfield', { id: 'q', type: 'search', placeholder: 'Movies and TV shows', autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', enterkeyhint: 'search' });
-    var wrap = U.el('div.searchwrap.glass', null, U.el('span.si', { html: IC.search }), input);
+    var wrap = U.el('div.searchwrap.lg', null, U.el('span.si', { html: IC.search }), input);
     el.appendChild(wrap);
     var res = U.el('div.grid');
     var note = U.el('p.empty', { text: 'Search across all your add-ons.' });
@@ -419,7 +445,7 @@ var Grid = (function () {
     sc.appendChild(grid);
     sc.appendChild(U.el('div.tabpad'));
     el.appendChild(sc);
-    el.appendChild(U.el('button.icon-btn.glass.backbtn', { html: IC.back, 'aria-label': 'Back', onclick: function () { Screens.pop(); } }));
+    el.appendChild(U.el('button.lg.circle.backbtn', { html: IC.back, 'aria-label': 'Back', onclick: function () { Screens.pop(); } }));
     var loaded = 0, loading = false, done = false;
     function more() {
       if (loading || done) return;
@@ -489,7 +515,7 @@ var Details = (function () {
     var eps = U.el('section.episodes');
     scroller.appendChild(head); scroller.appendChild(eps);
     scroller.appendChild(U.el('div.tabpad'));
-    var back = U.el('button.icon-btn.glass.backbtn', { html: IC.back, 'aria-label': 'Back', onclick: function () { Screens.pop(); } });
+    var back = U.el('button.lg.circle.backbtn', { html: IC.back, 'aria-label': 'Back', onclick: function () { Screens.pop(); } });
     var spin = U.el('div.busy', { hidden: true }, U.el('div.spinner'));
     el.appendChild(scroller); el.appendChild(back); el.appendChild(spin);
     var meta = m, target = null, season = null, full = false, descOpen = false;
@@ -539,10 +565,10 @@ var Details = (function () {
           U.el('span', { text: U.minutesLeft(target.progress.duration - target.progress.position) })));
       }
       var acts = U.el('div.dacts');
-      acts.appendChild(U.el('button.btn.glassy.cap.verbtn', { html: IC.tune + '<span>Versions</span>', onclick: function () { openVersions(target); } }));
+      acts.appendChild(U.el('button.btn.lgbtn.cap.verbtn', { html: IC.tune + '<span>Versions</span>', onclick: function () { openVersions(target); } }));
       var lib = Stremio.findLocal(meta.id);
       if (target.progress || (lib && lib.state.timeOffset > 0 && lib.state.video_id === target.videoId)) {
-        acts.appendChild(U.el('button.roundbtn', { html: IC.reset, 'aria-label': 'Clear progress', onclick: function () {
+        acts.appendChild(U.el('button.lg.circle.lgbig', { html: IC.reset, 'aria-label': 'Clear progress', onclick: function () {
           Stremio.push({ id: meta.id, type: meta.type, name: meta.name, poster: meta.poster, videoId: target.videoId, position: 0, duration: target.progress ? target.progress.duration : 0 });
           U.toast('Progress cleared'); render(); renderEpisodes();
         } }));
@@ -575,8 +601,11 @@ var Details = (function () {
       var seasons = [];
       list.forEach(function (e) { if (seasons.indexOf(e.season) < 0) seasons.push(e.season); });
       if (season === null) season = target && target.ep ? target.ep.season : seasons[0];
-      var sb = U.el('button.seasonbtn', { html: '<span>Season ' + season + '</span>' + UPDOWN });
-      sb.onclick = function () { seasonMenu(sb, seasons); };
+      var sel = U.el('select.seasonsel', { 'aria-label': 'Season' });
+      seasons.forEach(function (n) { var o = U.el('option', { value: n, text: 'Season ' + n }); if (n === season) o.selected = true; sel.appendChild(o); });
+      sel.onchange = function () { season = +sel.value; renderEpisodes(); };
+      var sb = U.el('label.seasonbtn', null, U.el('span', { text: 'Season ' + season }), U.el('span.ud', { html: UPDOWN }), sel);
+      if (seasons.length < 2) { sel.disabled = true; U.$('.ud', sb).hidden = true; }
       eps.appendChild(sb);
       var track = U.el('div.track.eps');
       var focusCard = null;
@@ -755,7 +784,7 @@ var App = (function () {
     if (Stremio.signedIn()) InstallTip.maybe();
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
   }
-  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.1' };
+  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.2' };
 })();
 
 /* In Safari (not yet on the Home Screen), a one-line nudge to add it, once per day at most. */
@@ -766,7 +795,7 @@ var InstallTip = (function () {
     var last = U.store.get('tipShown', 0);
     if (Date.now() - last < 86400000) return;
     U.store.set('tipShown', Date.now());
-    var tip = U.el('div.installtip.glass', { role: 'note' },
+    var tip = U.el('div.installtip.lg', { role: 'note' },
       U.el('div.it-text', null, U.el('b', { text: 'Add Lumera to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. It opens signed in.' })),
       U.el('button.icon-btn', { html: IC.close, 'aria-label': 'Dismiss', onclick: function () { tip.remove(); } }));
     document.body.appendChild(tip);
