@@ -1,5 +1,5 @@
 /*
- * Lumera for iPhone: the same app as the living room and bedroom TVs, built for touch.
+ * Tra-la-la TV for iPhone: the same app as the living room and bedroom TVs, built for touch.
  * Who's Watching on launch, Up Next from your Stremio account, rows from your add-ons,
  * one-tap Play that picks a version the iPhone can play, and a next-episode countdown.
  */
@@ -164,7 +164,7 @@ var SignIn = (function () {
         err.textContent = /password|user|wrong|not found|invalid/i.test(x.message) ? 'That email and password didn’t match a Stremio account. Check them and try again.' : 'Couldn’t reach Stremio. Check your connection and try again.';
       });
     };
-    el.appendChild(U.el('div.mark', { html: IC.play }));
+    el.appendChild(U.el('img.mark', { src: 'icons/icon-192.png', alt: 'Tra-la-la TV' }));
     el.appendChild(U.el('h1.who', { text: 'Sign in to Stremio' }));
     el.appendChild(U.el('p.lede', { text: 'Use the same account as your TVs. Up Next, add-ons and progress all come along.' }));
     el.appendChild(form);
@@ -498,7 +498,7 @@ var Settings = (function () {
       U.el('div.row', null, U.el('div.row-t', { text: Stremio.email() || 'Signed in' })),
       U.el('button.row.link.danger', { onclick: function () { Stremio.logout(); Sheet.close(); App.start(); } }, U.el('div.row-t', { text: 'Sign Out' }))));
     body.appendChild(U.el('p.foot-note', { text: 'You stay signed in on this iPhone, even from the Home Screen icon. Sign Out to switch accounts.' }));
-    body.appendChild(U.el('p.foot-note.center', { text: 'Lumera ' + App.version + ' · The same app as your living room and bedroom TVs.' }));
+    body.appendChild(U.el('p.foot-note.center', { text: 'Tra-la-la TV ' + App.version + ' · The same app as your living room and bedroom TVs.' }));
     Sheet.open('Settings', body, { tall: true });
   }
   return { open: open };
@@ -803,7 +803,7 @@ var App = (function () {
     if (Stremio.signedIn()) InstallTip.maybe();
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
   }
-  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.3' };
+  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.4' };
 })();
 
 /* In Safari (not yet on the Home Screen), a one-line nudge to add it, once per day at most. */
@@ -815,7 +815,7 @@ var InstallTip = (function () {
     if (Date.now() - last < 86400000) return;
     U.store.set('tipShown', Date.now());
     var tip = U.el('div.installtip.lg', { role: 'note' },
-      U.el('div.it-text', null, U.el('b', { text: 'Add Lumera to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. Turn off “Open as Web App” to keep Picture in Picture.' })),
+      U.el('div.it-text', null, U.el('b', { text: 'Add Tra-la-la TV to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. Turn off “Open as Web App” to keep Picture in Picture.' })),
       U.el('button.icon-btn', { html: IC.close, 'aria-label': 'Dismiss', onclick: function () { tip.remove(); } }));
     document.body.appendChild(tip);
     setTimeout(function () { tip.remove(); }, 15000);

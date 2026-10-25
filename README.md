@@ -1,5 +1,5 @@
-# Lumera for iPhone
+# Tra-la-la TV for iPhone
 
 The Srun family's movie and TV app for iPhone, the same app as the living room and bedroom TVs.
-Open https://sobutra.github.io/lumera/ in Safari, tap Share, then Add to Home Screen.
+Open https://sobutra.github.io/tralala-tv/ in Safari, tap Share, then Add to Home Screen (turn off "Open as Web App" to keep Picture in Picture).
 Works with a Stremio account; nothing personal is stored in this code.

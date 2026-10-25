@@ -1,4 +1,4 @@
-/* Lumera for iPhone, modeled on the iPhone TV app: black canvas, key art that bleeds into its own
+/* Tra-la-la TV for iPhone, modeled on the iPhone TV app: black canvas, key art that bleeds into its own
    blurred color, white and glass capsule buttons, a floating glass tab bar with a blue selection.
    Layout: stacked full-screen layers (tabs, details, player) with bottom sheets for choices. */
 :root {
@@ -330,3 +330,4 @@ button.lg:active, .btn.lgbtn:active, .tab:active { transform: scale(1.08); filte
 .lg.circle.bigplay { position: absolute; left: 50%; top: 50%; width: 84px; height: 84px; margin: -42px 0 0 -42px; z-index: 2; }
 .lg.circle.bigplay svg { width: 38px; height: 38px; margin-left: 4px; }
 .pnote { margin-top: 18px; font-size: 14px; color: var(--fg2); }
+.mark { object-fit: cover; }

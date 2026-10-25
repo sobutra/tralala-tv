@@ -1,7 +1,7 @@
 /* Keeps the app itself available offline and quick to open. Always tries the network first,
    so updates show up on the next launch. Account data and videos are never cached here. */
-const CACHE = 'lumera-shell-v4';
-const SHELL = ['./', 'index.html', 'css/app.css?v=4', 'js/util.js?v=4', 'js/stremio.js?v=4', 'js/smart.js?v=4', 'js/player.js?v=4', 'js/app.js?v=4', 'icons/apple-touch-icon.png'];
+const CACHE = 'tralala-shell-v5';
+const SHELL = ['./', 'index.html', 'css/app.css?v=5', 'js/util.js?v=5', 'js/stremio.js?v=5', 'js/smart.js?v=5', 'js/player.js?v=5', 'js/app.js?v=5', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {

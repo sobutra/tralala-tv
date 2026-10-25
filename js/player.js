@@ -1,7 +1,7 @@
 /*
  * The player uses Safari's own video controls, which on iOS 26 are real Liquid Glass and bring
  * AirPlay, Picture in Picture, the subtitle and audio menus and full screen with them. Around
- * them Lumera adds: close and Versions, the title, the next-episode countdown, the lock-screen
+ * them Tra-la-la TV adds: close and Versions, the title, the next-episode countdown, the lock-screen
  * title (Media Session), progress saved to Stremio, and automatic fallback when a version won't play.
  */
 'use strict';
@@ -69,7 +69,7 @@ var Player = (function () {
       try {
         if ('mediaSession' in navigator && window.MediaMetadata) {
           var art = U.art(S.meta.id, 'poster', 'medium') || S.meta.poster;
-          navigator.mediaSession.metadata = new MediaMetadata({ title: series && S.ep ? (S.ep.title || S.ep.name || S.meta.name) : S.meta.name, artist: series ? S.meta.name + ' · ' + tSub.textContent.split(' · ')[0] : (S.meta.releaseInfo || ''), album: 'Lumera', artwork: art ? [{ src: art, sizes: '600x900', type: 'image/jpeg' }] : [] });
+          navigator.mediaSession.metadata = new MediaMetadata({ title: series && S.ep ? (S.ep.title || S.ep.name || S.meta.name) : S.meta.name, artist: series ? S.meta.name + ' · ' + tSub.textContent.split(' · ')[0] : (S.meta.releaseInfo || ''), album: 'Tra-la-la TV', artwork: art ? [{ src: art, sizes: '600x900', type: 'image/jpeg' }] : [] });
           navigator.mediaSession.setActionHandler('nexttrack', series ? function () { nextEp().then(function (ep) { if (ep) playNext(ep); }); } : null);
         }
       } catch (e) {}
@@ -334,7 +334,7 @@ var Player = (function () {
     if (!pipAvailable() && navigator.standalone && !U.store.get('pipNoteSeen', false)) {
       U.store.set('pipNoteSeen', true);
       note.hidden = false;
-      note.textContent = 'Picture in Picture isn’t available when Lumera runs as a Home Screen web app (an iOS limitation). Open it in Safari to use it.';
+      note.textContent = 'Picture in Picture isn’t available when Tra-la-la TV runs as a Home Screen web app (an iOS limitation). Open it in Safari to use it.';
     }
     Screens.push(screen, { modal: true });
     S.saveTimer = setInterval(function () { if (!video.paused && !S.switching) save(); }, 15000);
