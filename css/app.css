@@ -327,3 +327,6 @@ button.lg:active, .btn.lgbtn:active, .tab:active { transform: scale(1.08); filte
 .it-text span { color: var(--fg2); font-size: 13px; }
 .nswitch { flex: none; display: flex; }
 .nswitch input { margin: 0; accent-color: var(--live); }
+.lg.circle.bigplay { position: absolute; left: 50%; top: 50%; width: 84px; height: 84px; margin: -42px 0 0 -42px; z-index: 2; }
+.lg.circle.bigplay svg { width: 38px; height: 38px; margin-left: 4px; }
+.pnote { margin-top: 18px; font-size: 14px; color: var(--fg2); }

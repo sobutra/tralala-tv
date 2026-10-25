@@ -26,9 +26,14 @@ var IC = {
 var Screens = (function () {
   var stack = [];
   var root;
+  var skipPop = 0;
   function init() {
     root = document.getElementById('app');
-    window.addEventListener('popstate', function () { if (stack.length > 1) pop(true); });
+    // the iPhone back swipe / browser Back closes the top screen; our own Back keeps history in step
+    window.addEventListener('popstate', function () {
+      if (skipPop > 0) { skipPop--; return; }
+      if (stack.length > 1) pop(true);
+    });
   }
   function top() { return stack[stack.length - 1] || null; }
   function push(s, opts) {
@@ -57,7 +62,7 @@ var Screens = (function () {
     var prev = top();
     prev.el.classList.remove('under');
     if (prev.onShow) prev.onShow();
-    if (!fromHistory) { try { history.back(); } catch (e) {} }
+    if (!fromHistory) { try { skipPop++; history.back(); } catch (e) { skipPop--; } }
   }
   /** Replace the whole stack with one screen (profile picker, sign-in, main). */
   function reset(s) {
@@ -284,6 +289,7 @@ var Browse = (function () {
       var track = U.el('div.track.land');
       items.slice(0, 20).forEach(function (it) { track.appendChild(upNextCard(it)); });
       upWrap.appendChild(track);
+      items.slice(0, 2).forEach(function (it) { Stremio.streams(it.type, it.videoId); });
     }
     return {
       el: el,
@@ -379,8 +385,17 @@ var Browse = (function () {
     var lg = U.$('img.logo', b);
     if (lg) { lg.onload = function () { U.$('.n', b).classList.add('hide'); }; lg.onerror = function () { lg.remove(); }; }
     b.onclick = function () {
-      U.haptic(); Player.prime();
-      Details.open({ id: it.id, type: it.type, name: it.name, poster: it.poster }, { autoplay: { videoId: it.videoId, position: it.position } });
+      U.haptic();
+      var m = { id: it.id, type: it.type, name: it.name, poster: it.poster };
+      var ready = Stremio.streamsReady(it.type, it.videoId), pick = ready && Smart.best(ready, it.type === 'series');
+      if (pick) {
+        // play inside this tap so iPhone opens its full-screen player; the show page sits underneath
+        Details.open(m);
+        Player.open({ meta: m, videoId: it.videoId, ep: null, stream: pick, streams: ready, startAt: it.position > 5000 ? it.position : 0 });
+        return;
+      }
+      Player.prime();
+      Details.open(m, { autoplay: { videoId: it.videoId, position: it.position } });
     };
     dots.onclick = function (e) {
       e.stopPropagation();
@@ -658,6 +673,10 @@ var Details = (function () {
     function busy(on) { spin.hidden = !on; }
     function start(t, chosen) {
       if (!t || !t.videoId) { U.toast('Nothing to play yet'); return; }
+      // versions already fetched: start right inside this tap, so iPhone opens its full-screen player at once
+      var ready = Stremio.streamsReady(meta.type, t.videoId);
+      var quick = chosen || (ready && Smart.best(ready, series()));
+      if (quick) { Player.open({ meta: meta, videoId: t.videoId, ep: t.ep || null, stream: quick, streams: ready || [quick], startAt: t.progress ? t.progress.position : 0 }); return; }
       Player.prime();
       busy(true);
       Stremio.streams(meta.type, t.videoId).then(function (streams) {
@@ -784,7 +803,7 @@ var App = (function () {
     if (Stremio.signedIn()) InstallTip.maybe();
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
   }
-  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.2' };
+  return { init: init, start: start, afterSignIn: afterSignIn, contentChanged: contentChanged, version: '1.3' };
 })();
 
 /* In Safari (not yet on the Home Screen), a one-line nudge to add it, once per day at most. */
@@ -796,7 +815,7 @@ var InstallTip = (function () {
     if (Date.now() - last < 86400000) return;
     U.store.set('tipShown', Date.now());
     var tip = U.el('div.installtip.lg', { role: 'note' },
-      U.el('div.it-text', null, U.el('b', { text: 'Add Lumera to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. It opens signed in.' })),
+      U.el('div.it-text', null, U.el('b', { text: 'Add Lumera to your Home Screen' }), U.el('span', { text: 'Tap Share, then Add to Home Screen. Turn off “Open as Web App” to keep Picture in Picture.' })),
       U.el('button.icon-btn', { html: IC.close, 'aria-label': 'Dismiss', onclick: function () { tip.remove(); } }));
     document.body.appendChild(tip);
     setTimeout(function () { tip.remove(); }, 15000);

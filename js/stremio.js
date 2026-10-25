@@ -226,9 +226,15 @@ var Stremio = (function () {
   function streams(type, id) {
     var k = type + ':' + id, hit = streamMem[k];
     if (hit && Date.now() - hit.t < 240000) return hit.p;
-    var p = fetchStreams(type, id).then(function (l) { if (!l.length) delete streamMem[k]; return l; });
-    streamMem[k] = { t: Date.now(), p: p };
-    return p;
+    var entry = { t: Date.now(), p: null, v: null };
+    entry.p = fetchStreams(type, id).then(function (l) { if (!l.length) delete streamMem[k]; else entry.v = l; return l; });
+    streamMem[k] = entry;
+    return entry.p;
+  }
+  /** Versions already fetched for this title, or null. Lets a tap start playback in the same moment. */
+  function streamsReady(type, id) {
+    var hit = streamMem[type + ':' + id];
+    return hit && hit.v && Date.now() - hit.t < 240000 ? hit.v : null;
   }
   function fetchStreams(type, id) {
     var sources = list().filter(function (a) { return a.manifest && supports(a, 'stream', type, id); });
@@ -383,7 +389,7 @@ var Stremio = (function () {
 
   return {
     signedIn: signedIn, email: email, login: login, linkCreate: linkCreate, linkRead: linkRead, logout: logout,
-    refreshAddons: refreshAddons, catalogs: catalogs, catalog: catalog, cachedCatalog: cachedCatalog, ensureEmail: ensureEmail,
+    refreshAddons: refreshAddons, catalogs: catalogs, catalog: catalog, cachedCatalog: cachedCatalog, ensureEmail: ensureEmail, streamsReady: streamsReady,
     onExpired: function (fn) { onExpired = fn; }, search: search, meta: meta, streams: streams,
     pull: pull, pullIfStale: pullIfStale, upNext: upNext, resolveFinished: resolveFinished, push: push,
     progressFor: progressFor, findLocal: findLocal, nextEpisode: nextEpisode, episodes: episodes, released: released,

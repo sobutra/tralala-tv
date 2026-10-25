@@ -8,12 +8,33 @@
 
 var Player = (function () {
   var cur = null;
-  // One video element for the whole app. iPhone only lets a video start with sound after a tap;
-  // once this element has been started from a tap, later episodes can start on their own.
-  var video = U.el('video', { playsinline: true, 'webkit-playsinline': true, preload: 'auto', controls: true, 'x-webkit-airplay': 'allow' });
+  /*
+   * On iPhone the video plays in Safari's own full-screen player. That player is what lets
+   * iOS slip into Picture in Picture by itself when you swipe home (Settings > General >
+   * Picture in Picture > Start PiP Automatically). From a video playing inside the page,
+   * iOS only allows Picture in Picture from a button tap. iPad and Mac play inside the page.
+   */
+  var IPHONE = /iPhone|iPod/.test(navigator.userAgent);
+  var video = U.el('video', { preload: 'auto', controls: true, 'x-webkit-airplay': 'allow', autopictureinpicture: true });
+  if (!IPHONE) { video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', ''); }
+  try { video.autoPictureInPicture = true; } catch (e) {}
+  function fullscreenNow() { return !!(video.webkitDisplayingFullscreen || video.webkitPresentationMode === 'fullscreen'); }
+  function pipNow() { return video.webkitPresentationMode === 'picture-in-picture' || document.pictureInPictureElement === video; }
+  /** Picture in Picture works in Safari; Home Screen web apps on iOS 26 don't offer it yet (WebKit bug 303885). */
+  function pipAvailable() {
+    try { if (video.webkitSupportsPresentationMode) return video.webkitSupportsPresentationMode('picture-in-picture'); } catch (e) {}
+    return !!document.pictureInPictureEnabled;
+  }
+  // iPhone only lets a video start with sound after a tap. Starting it once from a tap unlocks
+  // this element, so later episodes can start on their own. (Inline for that first moment, so
+  // no empty full-screen player flashes up.)
   function prime() {
     if (cur) return;
-    try { var p = video.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    try {
+      video.setAttribute('playsinline', '');
+      var p = video.play(); if (p && p.catch) p.catch(function () {});
+      if (IPHONE) setTimeout(function () { if (!cur || !video.src) video.removeAttribute('playsinline'); }, 0);
+    } catch (e) {}
   }
 
   function open(opts) {
@@ -23,11 +44,13 @@ var Player = (function () {
     var bClose = U.el('button.lg.circle', { html: IC.close, 'aria-label': 'Close' });
     var bVer = U.el('button.lg.circle', { html: IC.tune, 'aria-label': 'Versions' });
     var bar = U.el('div.pbar', null, bClose, U.el('div.flex1'), bVer);
-    var stage = U.el('div.pstage', null, video, U.el('div.pspin', null, U.el('div.spinner'), U.el('div.pmsg')));
+    var bigPlay = U.el('button.lg.circle.bigplay', { html: IC.play, 'aria-label': 'Play', hidden: true });
+    var stage = U.el('div.pstage', null, video, U.el('div.pspin', null, U.el('div.spinner'), U.el('div.pmsg')), bigPlay);
     var tTitle = U.el('h1.ptitle');
     var tSub = U.el('div.ptsub');
     var next = U.el('div.nextcard.lg');
-    var below = U.el('div.pbelow', null, U.el('div.ptext', null, tTitle, tSub), next);
+    var note = U.el('p.pnote', { hidden: true });
+    var below = U.el('div.pbelow', null, U.el('div.ptext', null, tTitle, tSub), next, note);
     el.appendChild(bar); el.appendChild(stage); el.appendChild(below);
 
     var S = {
@@ -86,15 +109,36 @@ var Player = (function () {
       video.onpause = function () { if (mine() && !S.switching && S.fresh) save(); };
       video.onended = function () { if (mine()) onEnded(); };
       video.onerror = function () { if (mine()) fail('error ' + (video.error && video.error.code)); };
+      if (IPHONE) video.removeAttribute('playsinline');
+      bigPlay.hidden = true;
       video.src = stream.url;
       try { video.load(); } catch (e) {}
       addSubtitles(token);
       var p = video.play();
       if (p && p.catch) p.catch(function (e) {
-        // the iPhone can refuse to start without a tap; its play button still works
-        if (mine() && e && e.name === 'NotAllowedError') busy(false);
+        // without a fresh tap iPhone may not open the full-screen player: offer the Play button
+        if (mine() && e && e.name === 'NotAllowedError') { busy(false); bigPlay.hidden = false; }
       });
+      if (IPHONE) setTimeout(function () { if (mine() && !fullscreenNow() && !pipNow() && (video.paused || video.readyState < 2)) { busy(false); bigPlay.hidden = false; } }, 6000);
     }
+    bigPlay.onclick = function () {
+      bigPlay.hidden = true;
+      try { var p = video.play(); if (p && p.catch) p.catch(function () { bigPlay.hidden = false; }); } catch (e) {}
+      try { if (IPHONE && video.readyState >= 1 && !fullscreenNow()) video.webkitEnterFullscreen(); } catch (e) {}
+    };
+    // closing the full-screen player (its X) brings you back to the show; swiping home keeps playing in Picture in Picture
+    var leaveTimer = null;
+    function presentationChanged() {
+      clearTimeout(leaveTimer);
+      if (!IPHONE || S.closed) return;
+      leaveTimer = setTimeout(function () {
+        if (S.closed || S.switching || video.ended || fullscreenNow() || pipNow()) return;
+        if (!video.src) return;
+        exit(true);
+      }, 700);
+    }
+    video.addEventListener('webkitendfullscreen', presentationChanged);
+    video.addEventListener('webkitpresentationmodechanged', presentationChanged);
 
     function fail(why) {
       if (S.closed) return;
@@ -170,6 +214,7 @@ var Player = (function () {
     }
     function maybeNext() {
       if (!series || S.cancelledNext || S.countdown || S.switching || !S.fresh || !U.store.get('autoplay', true) || !S.duration) return;
+      if (fullscreenNow() || pipNow()) return;
       if (S.position < S.duration * 0.95 && S.duration - S.position > 25000) return;
       nextEp().then(function (ep) { if (ep && !S.countdown && !S.cancelledNext && cur === S && !S.switching) startCountdown(ep); });
     }
@@ -260,6 +305,10 @@ var Player = (function () {
       S.closed = true;
       clearInterval(S.countdown); clearInterval(S.saveTimer); clearTimeout(S.loadTimer);
       ['onloadedmetadata', 'onplaying', 'onwaiting', 'oncanplay', 'ontimeupdate', 'onpause', 'onended', 'onerror'].forEach(function (k) { video[k] = null; });
+      clearTimeout(leaveTimer);
+      video.removeEventListener('webkitendfullscreen', presentationChanged);
+      video.removeEventListener('webkitpresentationmodechanged', presentationChanged);
+      try { if (pipNow()) { if (document.exitPictureInPicture && document.pictureInPictureElement) document.exitPictureInPicture(); else video.webkitSetPresentationMode('inline'); } } catch (e) {}
       try { if (video.webkitDisplayingFullscreen) video.webkitExitFullscreen(); } catch (e) {}
       try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) {}
       U.$$('track', video).forEach(function (t) { t.remove(); });
@@ -282,6 +331,11 @@ var Player = (function () {
       }
     };
     titles();
+    if (!pipAvailable() && navigator.standalone && !U.store.get('pipNoteSeen', false)) {
+      U.store.set('pipNoteSeen', true);
+      note.hidden = false;
+      note.textContent = 'Picture in Picture isn’t available when Lumera runs as a Home Screen web app (an iOS limitation). Open it in Safari to use it.';
+    }
     Screens.push(screen, { modal: true });
     S.saveTimer = setInterval(function () { if (!video.paused && !S.switching) save(); }, 15000);
     load(opts.stream, opts.startAt || 0);
