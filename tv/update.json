@@ -1,0 +1,8 @@
+{
+  "versionCode": 24,
+  "versionName": "0.3.24",
+  "notes": "TVs now update themselves: when a new version is ready, you'll see this message.",
+  "file": "tralala-tv-24.bin",
+  "sha256": "4959ba7b37a0bb7f81fab89c507ae0e4f6ed0f3c129cb337ba4acf839a060f8c",
+  "size": 12305920
+}
