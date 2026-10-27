@@ -1,8 +1,8 @@
 {
-  "versionCode": 25,
-  "versionName": "0.3.25",
-  "notes": "New look options including Liquid Glass, a simpler menu, and Load More on every list.",
-  "file": "tralala-tv-25.bin",
-  "sha256": "2dcff4bb4c6c8c3940a984b47569a812ccc905f091a711552bb2276bc92f9761",
+  "versionCode": 26,
+  "versionName": "0.3.26",
+  "notes": "The button you're on is now easy to see: it turns white and lifts up.",
+  "file": "tralala-tv-26.bin",
+  "sha256": "215e6e5f8ae9e85dcf0fec64de3cd9a9c63d1937ea78e3b26e9cc063ad444007",
   "size": 12338688
 }
