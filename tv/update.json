@@ -1,8 +1,8 @@
 {
-  "versionCode": 26,
-  "versionName": "0.3.26",
-  "notes": "The button you're on is now easy to see: it turns white and lifts up.",
-  "file": "tralala-tv-26.bin",
-  "sha256": "215e6e5f8ae9e85dcf0fec64de3cd9a9c63d1937ea78e3b26e9cc063ad444007",
-  "size": 12338688
+  "versionCode": 27,
+  "versionName": "0.3.27",
+  "notes": "Simpler categories: one Popular, New and Featured row, and every streaming service in one row.",
+  "file": "tralala-tv-27.bin",
+  "sha256": "efea366c608903549f0d6c1061209732613cfe1abf0ce3686588782873db13a8",
+  "size": 12342784
 }
